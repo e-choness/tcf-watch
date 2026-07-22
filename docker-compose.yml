@@ -1,0 +1,13 @@
+services:
+  tcf-watch:
+    build: .
+    container_name: tcf-watch
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - tcf_state:/data
+    environment:
+      TCF_STATE_DIR: /data
+
+volumes:
+  tcf_state:
