@@ -171,6 +171,14 @@ def main(argv: list[str]) -> int:
 
     notifier = build_notifier(settings)
 
+    if cmd == "heartbeat":
+        ok = notifier.send(
+            "tcf-watch heartbeat",
+            f"Monitor alive on GitHub Actions. Watching {len(SITES)} sites hourly.",
+        )
+        print("heartbeat", "ok" if ok else "FAILED")
+        return 0 if ok else 1
+
     if cmd == "test-notify":
         ok = notifier.send(
             "tcf-watch test",

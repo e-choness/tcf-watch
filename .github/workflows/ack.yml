@@ -1,0 +1,34 @@
+name: Acknowledge alert (silence reminders)
+
+on:
+  workflow_dispatch:
+    inputs:
+      site:
+        description: "Site to acknowledge"
+        required: true
+        type: choice
+        options: [calgary, edmonton, vancouver]
+
+permissions:
+  contents: write
+
+jobs:
+  ack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TCF_STATE_DIR: ${{ github.workspace }}/state
+      TCF_LEAN_STATE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: python -m tcfwatch ack "${{ inputs.site }}"
+      - name: Commit ack
+        run: |
+          git config user.name  "tcf-watch[bot]"
+          git config user.email "tcf-watch@users.noreply.github.com"
+          git add state/
+          git diff --cached --quiet || { git commit -m "ack ${{ inputs.site }}"; git push; }

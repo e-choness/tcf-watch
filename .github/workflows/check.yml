@@ -1,0 +1,54 @@
+name: Check TCF registration pages
+
+on:
+  schedule:
+    - cron: "23 * * * *"      # hourly at :23 (odd minute avoids GH cron congestion)
+  workflow_dispatch: {}        # manual "Run workflow" button for testing
+
+permissions:
+  contents: write              # to commit updated state back
+
+concurrency:
+  group: tcf-check
+  cancel-in-progress: false    # never race two runs against the same state
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5         # cap billed minutes if a fetch hangs
+    env:
+      TCF_NOTIFIER: telegram
+      TCF_STATE_DIR: ${{ github.workspace }}/state
+      TCF_LEAN_STATE: "1"     # only commit when content/flags change
+      TCF_RENOTIFY_SECONDS: "0"  # keyword present + un-acked => remind every run (hourly)
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      # For Pushover instead, set TCF_NOTIFIER: pushover and:
+      # PUSHOVER_APP_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
+      # PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Poll sites
+        # Exit code 2 (a site fetch failed) is expected occasionally; the
+        # in-band "monitoring broken" alert fires after 4 consecutive
+        # failures, so don't fail the workflow and spam GH failure emails.
+        run: python -m tcfwatch once || echo "::warning::one or more sites failed to fetch this run"
+
+      - name: Commit state if changed
+        run: |
+          git config user.name  "tcf-watch[bot]"
+          git config user.email "tcf-watch@users.noreply.github.com"
+          git add state/
+          if ! git diff --cached --quiet; then
+            git commit -m "state: $(date -u +%Y-%m-%dT%H:%MZ)"
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+            git push
+          fi

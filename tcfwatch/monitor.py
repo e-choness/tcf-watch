@@ -137,8 +137,16 @@ def load_state(settings: Settings, site: Site) -> dict:
 def save_state(settings: Settings, site: Site, state: dict) -> None:
     p = state_path(settings, site)
     p.parent.mkdir(parents=True, exist_ok=True)
+    to_write = dict(state)
+    if getattr(settings, "lean_state", False):
+        # Drop per-run timestamps so git-committed state stays stable
+        # unless content/flags actually changed. Without last_notified_utc,
+        # the nag re-fires every run — fine when the run interval (e.g. 1 h
+        # on GitHub Actions) already exceeds the renotify interval.
+        to_write.pop("last_ok_utc", None)
+        to_write.pop("last_notified_utc", None)
     tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps(state, indent=2))
+    tmp.write_text(json.dumps(to_write, indent=2, sort_keys=True) + "\n")
     tmp.replace(p)
 
 

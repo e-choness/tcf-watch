@@ -208,3 +208,45 @@ class TestPushover:
             n.send("T", "m", high=True)
             body = rsps.calls[0].request.body
         assert "retry=60" in body and "expire=3600" in body
+
+
+# ---------- GitHub Actions (lean state) mode ----------
+
+class TestLeanState:
+    def test_lean_state_omits_timestamps(self, tmp_path):
+        settings = Settings(state_dir=str(tmp_path), lean_state=True)
+        site = site_by_key("vancouver")
+        save_state(settings, site, {
+            "hash": "h", "text": "t", "keyword_hit": False, "acked": False,
+            "consecutive_failures": 0,
+            "last_ok_utc": "2026-07-22T00:00:00+00:00",
+            "last_notified_utc": "2026-07-22T00:00:00+00:00",
+        })
+        raw = json.loads((Path(settings.state_dir) / "vancouver.json").read_text())
+        assert "last_ok_utc" not in raw and "last_notified_utc" not in raw
+        assert raw["hash"] == "h"
+
+    def test_lean_state_stable_across_identical_runs(self, tmp_path):
+        """Two polls of identical content must write byte-identical state
+        (so the Actions workflow makes no commit)."""
+        settings = Settings(state_dir=str(tmp_path), lean_state=True)
+        site = site_by_key("vancouver")
+        body = fixture("vancouver_before.html")
+        p = Path(settings.state_dir) / "vancouver.json"
+        with responses_lib.RequestsMock() as rsps:
+            rsps.get(site.url, body=body)
+            check_site(site, settings)
+        first = p.read_bytes()
+        with responses_lib.RequestsMock() as rsps:
+            rsps.get(site.url, body=body)
+            check_site(site, settings)
+        assert p.read_bytes() == first
+
+    def test_default_mode_keeps_timestamps(self, tmp_path):
+        settings = Settings(state_dir=str(tmp_path))
+        site = site_by_key("vancouver")
+        with responses_lib.RequestsMock() as rsps:
+            rsps.get(site.url, body=fixture("vancouver_before.html"))
+            check_site(site, settings)
+        raw = json.loads((Path(settings.state_dir) / "vancouver.json").read_text())
+        assert raw["last_ok_utc"] is not None

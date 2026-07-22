@@ -82,6 +82,10 @@ class Settings:
         "tcf-watch/1.0 (personal registration monitor; contact via repo)",
     )
     request_timeout: int = int(os.getenv("TCF_TIMEOUT", "30"))
+    # Lean state: omit volatile timestamps from persisted JSON so that
+    # committing state to a git repo (GitHub Actions mode) only produces
+    # commits when something meaningful changed.
+    lean_state: bool = os.getenv("TCF_LEAN_STATE", "0") == "1"
 
     # Telegram
     telegram_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "")

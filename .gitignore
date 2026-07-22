@@ -1,3 +1,8 @@
+__pycache__/
+*.pyc
+.env
+.pytest_cache/
+state/*.tmp
 # Created by https://www.toptal.com/developers/gitignore/api/python
 # Edit at https://www.toptal.com/developers/gitignore?templates=python
 
