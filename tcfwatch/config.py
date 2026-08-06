@@ -7,12 +7,15 @@ Each site entry defines:
   - keywords: if ANY keyword (case-insensitive) appears in the monitored
     section, the alert is escalated to HIGH (registration likely open for
     the target window). Otherwise a plain "page changed" alert is sent.
+  - dynamic: if True, this is a template site that will spawn children via
+    dynamic extraction (e.g., scraping month links from a hub page).
 """
 
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -22,6 +25,12 @@ class Site:
     url: str
     selectors: tuple[str, ...] = ()
     keywords: tuple[str, ...] = ()
+    dynamic: bool = False
+    # For dynamic sites: regex to extract month links
+    link_selector: Optional[str] = None
+    link_pattern: Optional[str] = None
+    # Parent site key if this is a dynamically-generated child
+    parent_key: Optional[str] = None
 
 
 # Keywords that indicate the December-2026 window is being referenced.
@@ -44,6 +53,10 @@ SITES: tuple[Site, ...] = (
         # WordPress site; main content column. Verify with `tcfwatch snapshot`.
         selectors=("main", "article", "#content", ".entry-content"),
         keywords=DEC_2026_KEYWORDS,
+        # Mark as dynamic to extract month-specific registration pages
+        dynamic=True,
+        link_selector="main a, article a, #content a, .entry-content a",
+        link_pattern=r"(?:december|décembre|december|déc|dec|12/|2026-12)",
     ),
     Site(
         key="edmonton",

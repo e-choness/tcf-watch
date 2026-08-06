@@ -49,6 +49,16 @@ jobs:
           git add state/
           if ! git diff --cached --quiet; then
             git commit -m "state: $(date -u +%Y-%m-%dT%H:%MZ)"
-            git pull --rebase origin "${GITHUB_REF_NAME}"
+            # Pull with rebase to avoid merge commits; retry once on conflicts
+            if ! git pull --rebase origin "${GITHUB_REF_NAME}"; then
+              echo "Rebase conflict; aborting and fast-forwarding instead..."
+              git rebase --abort
+              git pull --ff-only origin "${GITHUB_REF_NAME}" || {
+                echo "Could not fast-forward; another run may have pushed. Retrying in 5s..."
+                sleep 5
+                git pull --ff-only origin "${GITHUB_REF_NAME}" || echo "::warning::state commit skipped (remote ahead)"
+                exit 0
+              }
+            fi
             git push
           fi

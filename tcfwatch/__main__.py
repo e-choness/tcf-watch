@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 import requests
 
 from .config import SITES, load_settings
+from .dynamic import extract_dynamic_sites
 from .monitor import CheckResult, check_site, load_state, save_state, utcnow
 from .notify import Notifier, build_notifier
 
@@ -28,6 +29,29 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 log = logging.getLogger("tcfwatch")
+
+
+def get_all_sites(settings, session: requests.Session) -> list:
+    """Build the full site list: static sites plus dynamically extracted ones."""
+    all_sites = []
+    for site in SITES:
+        if site.dynamic:
+            # Extract month-specific sites from this template
+            dynamic_sites = extract_dynamic_sites(
+                site,
+                user_agent=settings.user_agent,
+                request_timeout=settings.request_timeout,
+                session=session,
+            )
+            if dynamic_sites:
+                all_sites.extend(dynamic_sites)
+            else:
+                # Fallback: if extraction fails, monitor the hub page itself
+                log.warning("Dynamic extraction failed for %s; using hub page", site.key)
+                all_sites.append(site)
+        else:
+            all_sites.append(site)
+    return all_sites
 
 
 def handle_result(res: CheckResult, notifier: Notifier, settings) -> None:
@@ -115,7 +139,11 @@ def _mark_notified(settings, site) -> None:
 
 def run_once(notifier: Notifier, settings, session: requests.Session) -> int:
     rc = 0
-    for site in SITES:
+    sites = get_all_sites(settings, session)
+    if not sites:
+        # Fallback: static sites only if dynamic extraction completely failed
+        sites = list(SITES)
+    for site in sites:
         res = check_site(site, settings, session)
         if res.status == "error":
             rc = 2
@@ -123,14 +151,17 @@ def run_once(notifier: Notifier, settings, session: requests.Session) -> int:
     return rc
 
 
-def heartbeat(notifier: Notifier, settings, last_beat_day: str | None) -> str | None:
+def heartbeat(notifier: Notifier, settings, last_beat_day: str | None, session: requests.Session | None = None) -> str | None:
     """Send one 'still alive' message per UTC day at the configured hour."""
     now = datetime.now(timezone.utc)
     today = now.strftime("%Y-%m-%d")
     if now.hour >= settings.heartbeat_hour_utc and last_beat_day != today:
+        sess = session or requests.Session()
+        all_sites = get_all_sites(settings, sess)
+        site_count = len(all_sites) if all_sites else len(SITES)
         notifier.send(
             "tcf-watch heartbeat",
-            f"Monitor alive. {len(SITES)} sites polled every "
+            f"Monitor alive. {site_count} sites polled every "
             f"{settings.poll_seconds // 60} min.",
         )
         return today
@@ -159,7 +190,9 @@ def main(argv: list[str]) -> int:
     if cmd == "snapshot":
         from .monitor import extract_section, fetch, keyword_hit
         session = requests.Session()
-        for site in SITES:
+        all_sites = get_all_sites(settings, session)
+        sites_to_show = all_sites if all_sites else list(SITES)
+        for site in sites_to_show:
             print(f"\n===== {site.name} ({site.url}) =====")
             try:
                 text = extract_section(fetch(site, settings, session), site)
@@ -200,15 +233,17 @@ def main(argv: list[str]) -> int:
         return run_once(notifier, settings, session)
 
     if cmd == "run":
+        all_sites = get_all_sites(settings, session)
+        site_count = len(all_sites) if all_sites else len(SITES)
         log.info(
             "Starting loop: %d sites, every %ds, notifier=%s",
-            len(SITES), settings.poll_seconds, settings.notifier,
+            site_count, settings.poll_seconds, settings.notifier,
         )
         last_beat_day: str | None = None
         while True:
             try:
                 run_once(notifier, settings, session)
-                last_beat_day = heartbeat(notifier, settings, last_beat_day)
+                last_beat_day = heartbeat(notifier, settings, last_beat_day, session)
             except Exception:  # noqa: BLE001 — loop must survive anything
                 log.exception("Unexpected error in poll cycle")
             time.sleep(settings.poll_seconds)
